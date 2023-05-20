@@ -7,34 +7,38 @@ BRANCH_NAME       := $(shell git name-rev --name-only   HEAD)
 COMMIT_HASH       := $(shell git rev-parse --short HEAD)
 CURRENT_TIMESTAMP := $(shell date +%Y-%m-%d-%H%M%S)
 VERSION           := $(CURRENT_TIMESTAMP).$(subst /,_,$(BRANCH_NAME)).$(COMMIT_HASH)
+VERSION_FILE      := Version
 
 ## ---- go ---
 BIN_DIR 		    = bin
 BIN_NAME            = hello
 GO_APP_FILES        := $(shell find . -type f -name '*.go')
 ## ---- docker ----
-IMAGE_PATH             := koh789/k8s-trial-hello
-DOCKER_FILE            := Dockerfile
-DOCKER_VERSION         := $(CURRENT_TIMESTAMP)
-DOCKER_VERSION_FILE    := Version
-DOCKER_CURRENT_VERSION = $(shell cat $(VERSION_FILE))
+IMAGE_NAME   := koh789/k8s-trial/$(BIN_NAME)
+IMAGE_TAG    ?= $(shell cat $(VERSION_FILE))
+IMAGE_PATH    = $(IMAGE_NAME):$(IMAGE_TAG)
+DOCKER_FILE   = Dockerfile
 
 ## ----------- go -----------
-
-.PHONY: build
-build: build/$(BIN_NAME)  ## binary file build
-
-build/$(BIN_NAME): 
+go-build:  ## binary file build
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0  \
-	go build -trimpath -tags netgo -ldflags='-s -w -extldflags "-static" -X "main.Version=$(VERSION)"' -o $@ 
+	go build -trimpath -tags netgo -ldflags='-s -w -extldflags "-static" -X "main.Version=$(VERSION)"' -o $(BIN_DIR)/$(BIN_NAME)
+	@$(MAKE) write-version 
+
+write-version:
+	@echo $(VERSION) > $(VERSION_FILE)
 	
 ## ----------- Docker -----------
 
 docker-build: ## Docker Imageをbuildする
-	docker build . -f $(DOCKER_FILE) -t $(IMAGE_PATH):$(DOCKER_VERSION)
-	docker tag $(IMAGE_PATH):$(DOCKER_VERSION_FILE) $(IMAGE_PATH):latest
-	echo $(DOCKER_VERSION) > $(VERSION_FILE)
+	@echo "BIN_NAME: $(BIN_NAME)"
+	docker  build -t $(IMAGE_PATH)  --build-arg APP=$(BIN_NAME) . -f $(DOCKER_FILE)
 
 docker-push: ## Docker ImageをGCRにpushする
-	docker push $(IMAGE_PATH):$(DOCKER_CURRENT_VERSION)
-	docker push $(IMAGE_PATH):latest
+	docker push $(IMAGE_PATH)
+
+docker-clean: ## 直近2件のimageを残して、その他のイメージを削除する
+	@docker images --format "{{.ID}}\t{{.CreatedAt}}\t{{.Tag}}" $(IMAGE_PATH) \
+		| sort -r -k2,3 \
+		| awk '$$3 != "latest" && NR > 3 {print $$1}' \
+		| xargs -n 1 docker rmi -f

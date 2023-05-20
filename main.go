@@ -5,5 +5,5 @@ import "fmt"
 var Version string
 
 func main() {
-	fmt.Printf("Hello, world! version: %s", Version)
+	fmt.Printf("Hello, world! version: %s\n", Version)
 }
